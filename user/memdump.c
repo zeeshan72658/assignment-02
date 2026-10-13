@@ -60,6 +60,56 @@ main(int argc, char *argv[])
 void
 memdump(char *fmt, char *data, int len)
 {
-  // Your code here.  `data` holds `len` valid bytes.
+  int offset, i, size;
+  uint32 value32;
+  uint16 value16;
+  uint64 value64;
+  char *string;
 
+  offset = 0;
+  for (i = 0; fmt[i] != '\0'; i++) {
+    switch (fmt[i]) {
+    case 'i': size = sizeof(value32); break;
+    case 'p':
+    case 's': size = sizeof(value64); break;
+    case 'h': size = sizeof(value16); break;
+    case 'c': size = 1; break;
+    case 'S':
+      while (offset < len && data[offset] != '\0')
+        printf("%c", data[offset++]);
+      printf("\n");
+      return;
+    default:
+      continue;
+    }
+
+    if (len - offset < size) {
+      printf("memdump: not enough data for '%c'\n", fmt[i]);
+      return;
+    }
+
+    switch (fmt[i]) {
+    case 'i':
+      memmove(&value32, data + offset, sizeof(value32));
+      printf("%d\n", (int)value32);
+      break;
+    case 'p':
+      memmove(&value64, data + offset, sizeof(value64));
+      printf("%lx\n", value64);
+      break;
+    case 'h':
+      memmove(&value16, data + offset, sizeof(value16));
+      printf("%d\n", (short)value16);
+      break;
+    case 'c':
+      printf("%c\n", data[offset]);
+      break;
+    case 's':
+      memmove(&value64, data + offset, sizeof(value64));
+      string = (char *)(uint64)value64;
+      printf("%s\n", string);
+      break;
+    }
+    offset += size;
+  }
 }
