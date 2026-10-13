@@ -167,6 +167,9 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  p->interpose_mask = 0;
+  p->interpose_set = 0;
+  p->interpose_path[0] = '\0';
   p->state = UNUSED;
 }
 
@@ -274,6 +277,10 @@ kfork(void)
     return -1;
   }
   np->sz = p->sz;
+  np->interpose_mask = p->interpose_mask;
+  np->interpose_set = p->interpose_set;
+  safestrcpy(np->interpose_path, p->interpose_path,
+             sizeof(np->interpose_path));
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
