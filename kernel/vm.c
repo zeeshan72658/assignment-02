@@ -148,10 +148,33 @@ walkaddr(pagetable_t pagetable, uint64 va)
 
 
 #if defined(LAB_PGTBL) || defined(SOL_MMAP) || defined(SOL_COW)
+static void
+vmprintwalk(pagetable_t pagetable, int level, uint64 base)
+{
+  for (int i = 0; i < 512; i++) {
+    pte_t pte = pagetable[i];
+    if ((pte & PTE_V) == 0)
+      continue;
+
+    uint64 va = base | ((uint64)i << PXSHIFT(level));
+    for (int depth = 0; depth < 3 - level; depth++)
+      printk(" ..");
+    printk("%p: pte %p pa %p ", (void *)va, (void *)pte,
+           (void *)PTE2PA(pte));
+    printk("%s%s%s%s\n", (pte & PTE_R) ? "R" : "",
+           (pte & PTE_W) ? "W" : "", (pte & PTE_X) ? "X" : "",
+           (pte & PTE_U) ? "U" : "");
+
+    if (level > 0 && !PTE_LEAF(pte))
+      vmprintwalk((pagetable_t)PTE2PA(pte), level - 1, va);
+  }
+}
+
 void
 vmprint(pagetable_t pagetable)
 {
-  // your code here
+  printk("page table %p\n", (void *)pagetable);
+  vmprintwalk(pagetable, 2, 0);
 }
 #endif
 
@@ -159,11 +182,56 @@ vmprint(pagetable_t pagetable)
 // add a mapping to the kernel page table.
 // only used when booting.
 // does not flush TLB or enable paging.
+#ifdef LAB_PGTBL
+static void
+kvmmapmega(pagetable_t pagetable, uint64 va, uint64 pa, int perm)
+{
+  pte_t *pte = &pagetable[PX(2, va)];
+  pagetable_t level1;
+
+  if (*pte & PTE_V) {
+    if (PTE_LEAF(*pte))
+      panic("kvmmap: level-2 leaf");
+    level1 = (pagetable_t)PTE2PA(*pte);
+  } else {
+    level1 = (pagetable_t)kalloc();
+    if (level1 == 0)
+      panic("kvmmap: kalloc");
+    memset(level1, 0, PGSIZE);
+    *pte = PA2PTE(level1) | PTE_V;
+  }
+
+  pte = &level1[PX(1, va)];
+  if (*pte & PTE_V)
+    panic("kvmmap: remap");
+  *pte = PA2PTE(pa) | perm | PTE_V;
+}
+#endif
+
 void
 kvmmap(pagetable_t kpgtbl, uint64 va, uint64 pa, uint64 sz, int perm)
 {
-  if (mappages(kpgtbl, va, sz, pa, perm) != 0)
-    panic("kvmmap");
+  if ((va % PGSIZE) != 0 || (pa % PGSIZE) != 0 || (sz % PGSIZE) != 0 ||
+      sz == 0)
+    panic("kvmmap: alignment");
+
+  while (sz > 0) {
+#ifdef LAB_PGTBL
+    if ((va % SUPERPGSIZE) == 0 && (pa % SUPERPGSIZE) == 0 &&
+        sz >= SUPERPGSIZE) {
+      kvmmapmega(kpgtbl, va, pa, perm);
+      va += SUPERPGSIZE;
+      pa += SUPERPGSIZE;
+      sz -= SUPERPGSIZE;
+      continue;
+    }
+#endif
+    if (mappages(kpgtbl, va, PGSIZE, pa, perm) != 0)
+      panic("kvmmap");
+    va += PGSIZE;
+    pa += PGSIZE;
+    sz -= PGSIZE;
+  }
 }
 
 // Create PTEs for virtual addresses starting at va that refer to
@@ -536,5 +604,3 @@ ismapped(pagetable_t pagetable, uint64 va)
   }
   return 0;
 }
-
-

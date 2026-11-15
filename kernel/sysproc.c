@@ -110,7 +110,64 @@ sys_vmprint(void)
 int
 sys_pgaccess(void)
 {
-  // lab pgtbl: your code here.
+  struct proc *p = myproc();
+  uint64 start, maskaddr;
+  int npages;
+  argaddr(0, &start);
+  argint(1, &npages);
+  argaddr(2, &maskaddr);
+
+  if (start >= MAXVA || npages < 0 || npages > PGSIZE * 8)
+    return -1;
+
+  uint64 nbytes = (npages + 7) / 8;
+  uint64 first = PGROUNDDOWN(start);
+  if (npages > 0 &&
+      first + (uint64)(npages - 1) * PGSIZE >= MAXVA)
+    return -1;
+
+  if (nbytes > 0) {
+    if (maskaddr >= MAXVA || maskaddr + nbytes < maskaddr ||
+        maskaddr + nbytes > MAXVA)
+      return -1;
+    for (uint64 va = PGROUNDDOWN(maskaddr); va < maskaddr + nbytes;
+         va += PGSIZE) {
+      pte_t *pte = walk(p->pagetable, va, 0);
+      if (pte == 0 || (*pte & (PTE_V | PTE_U | PTE_W)) !=
+                          (PTE_V | PTE_U | PTE_W))
+        return -1;
+    }
+  }
+
+  char *bits = kalloc();
+  if (bits == 0)
+    return -1;
+  memset(bits, 0, PGSIZE);
+
+  for (int i = 0; i < npages; i++) {
+    pte_t *pte = walk(p->pagetable, first + (uint64)i * PGSIZE, 0);
+    if (pte == 0 || (*pte & (PTE_V | PTE_U)) != (PTE_V | PTE_U)) {
+      kfree(bits);
+      return -1;
+    }
+  }
+
+  int accessed = 0;
+  for (int i = 0; i < npages; i++) {
+    pte_t *pte = walk(p->pagetable, first + (uint64)i * PGSIZE, 0);
+    if (*pte & PTE_A) {
+      bits[i / 8] |= 1U << (i % 8);
+      *pte &= ~PTE_A;
+      accessed = 1;
+    }
+  }
+  if (accessed)
+    sfence_vma();
+
+  int result = copyout(p->pagetable, p->sz, maskaddr, bits, nbytes);
+  kfree(bits);
+  if (result < 0)
+    return -1;
   return 0;
 }
 #endif

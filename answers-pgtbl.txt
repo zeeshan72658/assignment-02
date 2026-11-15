@@ -1,0 +1,52 @@
+Page-table inspection and vmprint
+---------------------------------
+
+A valid PTE is either an intermediate page-table pointer or a leaf mapping.
+An intermediate PTE has PTE_V set and no R, W, or X bits; its physical
+address points to the next page-table page. A leaf PTE maps the virtual
+page shown by the walk to the physical page frame in the PTE. Physical
+frames need not be adjacent even when their virtual pages are adjacent.
+
+The permission letters describe the leaf's access rights: R permits reads,
+W permits writes, X permits instruction fetches, and U permits access from
+user mode. RXU is user-readable and executable but not writable, as for
+program text. RWU is user-readable and writable but not executable, as for
+data, heap, and stack pages. The stack guard page has a valid mapping but
+lacks U, so user mode cannot access it. The TRAPFRAME is RW but supervisor
+only; the TRAMPOLINE is RX but supervisor only. USYSCALL is RU, allowing
+user code to read the shared PID while preventing writes. A zero PTE, such
+as an unmapped guard or unused high virtual page, maps nothing.
+
+The hexadecimal permission value also includes status bits such as A
+(accessed) and D (dirty), so its low bits need not equal just the letters
+printed by vmprint. For example, 0x5b represents a valid RXU mapping with
+the accessed bit set, while 0xc7 represents a valid supervisor RW mapping
+with accessed and dirty set. Exact physical addresses and status bits can
+vary between runs.
+
+vmprint prints intermediate PTEs as well as leaves. Its indentation is the
+depth in the Sv39 tree; an intermediate row's physical address is the next
+page-table page, not user data. The leaf rows correspond to the mapped
+virtual pages reported by pgpte, including text, data, stack, USYSCALL,
+TRAPFRAME, and TRAMPOLINE where present. The page-table structure adds
+intermediate rows that do not appear in the pgpte per-page listing.
+
+Shared system-call data
+-----------------------
+
+The shared read-only page can also accelerate uptime(): the kernel could
+publish the tick count there and update it as timer ticks arrive, allowing
+user code to read it without a system call. This trades the syscall cost
+for kernel work on each tick and requires a defined consistency policy.
+Calls returning stable identity or credential values (for example getuid
+or getgid, if added to xv6) are also suitable. Values that change or require
+side effects are less appropriate.
+
+Kernel megapages
+----------------
+
+This kernel mapping uses 95 megapage PTEs: 32 for the 64 MiB PLIC range and
+63 for the aligned portion of RAM from 0x80200000 through PHYSTOP. Each
+megapage replaces one level-0 page-table page containing 512 ordinary
+4 KiB leaf PTEs. Thus these mappings save 95 bottom-level page-table pages
+(380 KiB) and replace 48,640 ordinary leaf entries.
